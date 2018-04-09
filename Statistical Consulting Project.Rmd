@@ -1,0 +1,586 @@
+---
+title: "Statistical Consulting Project"
+author: "Quinn Sweetnam"
+date: "March 27, 2018"
+output: pdf_document
+---
+#Abstract 
+Though Involutional Ptosis treatment is well-documented and thorough, the causes of this eye condition are still obscure. Existing research links the presence of Ptosis to certain medical conditions and procedures but in the Winter of 2018 doctors from the Stein Eye Institute, in association with Ronald Reagan Medical Center in Los Angeles, asked Senior Statisitcs students at UCLA to analyze data to better their understanding of what causes Ptosis. This study aims to further analyze the relationship between Ptosis and a number of risk factors through statistical analysis.  The risk factors under study are Hypertension, Ischemic Heart Disease, Heart Failure, Peripheral Vascular Disease, Chronic Kidney Disease, Hyperthyroidism, Type I Diabetes, Type II Diabetes, Hyperlipidemia, Obesity, (history of) Alcohol Abuse, (history of) Tobacco use, and Peripheral Neuropathy. The study also examines Ocular surgery as a risk factor for developing ptosis. Charged with measuring the contribution of certain risk factors to developing Ptosis, the study was limited to running logistic models due to the ease of interpretability and the primary focus was the main effect of a given risk factor so variable transformations were limited. To conduct the analysis, five logistic regression models were ran on selected subgroups: patients with at least one risk factor (RF) listed, and patients who underwent ocular surgery. Regression models that included patients with ocular surgery added one more variable (ocular surgery) to the model alongside the other RF variables. The model with the greatest predictive power included patients who had ocular surgery and at least one RF; this logistic regression model includes second-order interaction effects between RF. The AUC for this model is 68.06% and identified Eye Surgery, Hyperthyroid Disease, Type II Diabetes, Kidney Disease, Alcohol Abuse, and Hypetension as statistically significant predictors of Ptosis at a 5% significance level.
+
+#Explanation of the Data
+The data for the analysis was gathered through a case control study and was provided by the Stein Institute. The control group consists of 13,128 patients without ptosis, and the cohort consists of  8,297 patients with ptosis. The original experimental design had two different control groups selected, which were age and gender matched in a 4 to 1 ratio; patients under 18 were excluded from the study. All of the patient records came from major medical centers located in California and patients could only be identified via randomly generated study ID's as to protect patient identity and data. 
+
+The variables of this study are all binary and are as follows:
+
+###Variables (called risk factors)
+
+  + Ptosis (response)
+  + Eye Surgery
+  + Hypertension
+  + Ischemic Heart Disease
+  + Heart Failure
+  + Perivascular Disease
+  + Kidney Disease
+  + Hyperthyroid
+  + Hypothyroid
+  + Type I Diabetes
+  + Type II Diabetes
+  + Hyperlipidemia
+  + Obesity
+  + Alcohol Abuse
+  + Tobacco Use
+  + Peripheral Neuropathy
+
+#Study Goal
+This study was tasked with finding and measuring the affect of the different risk factors on causing Ptosis in the general population. It was the above risk factors that they were interested in and so this study does not look to examine or incorporate alternate diseases, demographic, or environmental data. The doctors were interested in drawing inferences from models and explroatory analysis, not finding the most accurate or powerful predictive model. According to the doctors at the Stein Institute, a previous third party had analyzed the data and their conclusions had been confusing and contrary to established medical knowledge so easy interpretation and attention to detail were key. 
+
+#Study Assumptions
+1. High levels of dependence are often found in medical data and most of the variables were found to be dependent on another using Chi-Square Tests of independence. This dependence is ignored during logistic regression.
+2. The data was collected in a statistically appropriate manner, according to the doctors interested in the analysis.
+3. Ocular surgery was conducted on the same eye that Ptosis was present, *despite having no way to ensure this from the data.* This concern was repeatedly raised and reported to the doctors interested in the study but they instructed the study to proceed anyway and to make this assumption. It remained a concern and should be duely noted before preceeding with understanding the results. 
+
+#Loading in Data
+```{r, echo = F}
+suppressMessages(library("tidyverse"))
+data <- suppressMessages(read_csv('/Users/QuinnSweetnam/Desktop/Ptosis_Disease_Data4.csv'))
+
+# Remove Study ID
+data <- data %>% 
+  select(-STUDY_ID)
+
+# Check Structure
+#str(data)
+
+dim(data %>% filter(Ptosis == 0)) # 13130 patients without Ptosis
+dim(data %>% filter(Ptosis == 1)) # 8295 patients with Ptosis
+```
+
+#Data Exploration
+
+```{r, out.width = '75%', fig.align='center', echo = F}
+suppressMessages(require(gridExtra))
+
+# Get counts of each disease in the entire data set 
+sumdata <- data.frame(value=apply(data,2,sum))
+sumdata$key <- rownames(sumdata)
+
+# Disease counts for entire data 
+ggplot(data=sumdata, aes(x=key, y=value, fill=key)) +
+  geom_bar(colour="black", stat="identity") +
+  ggtitle("Risk Factor Prevalence in Data") +
+  labs(x = "Risk Factor", y = "Count") + 
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), plot.title = element_text(face = "bold", hjust = 0.5))
+# hypertension, hyperlipidemia and ptosis are most common disease in data set 
+
+
+# Proportions of risk factors in just Ptosis Patients
+Props <- vector()
+for(i in 1:15)
+Props[i] <- sum(data[,i] ==1 & data$Ptosis ==1)/8295
+Props <- as.numeric(Props)
+Disease_name <- colnames(data)
+
+
+PropData <- cbind.data.frame(Props, Disease_name)
+PropData <- PropData[-15,]
+
+ggplot(PropData, aes(x=Disease_name, y = Props, fill = Disease_name)) + 
+  geom_bar(colour = "black", stat = "identity") + 
+  labs(x = "Risk Factor", y = "Proportion") + 
+  ggtitle("Disease Presence in Ptosis Patients") + 
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), plot.title = element_text(face = "bold", hjust = 0.5))
+```
+
+We can see that Ptosis is the most prevelant condition in the data, followed by Hyperlipidemia, Hypertension, Hypothyroid, Ischemic Heart Disease and Type II Diabetes. These same risk factors are frequent in just Ptosis patients with some 20% of Ptosis cases having Hypertension or Hyperlipidemia. This is the first clue that these risk factors may be associated with Ptosis. We can also notice low levels of Tobacco Use and Obesity in the data overall and these are not actually reflective of national obesity and tobacco use rates in the U.S. but of rates in California.  
+
+The initial stages of data exploration revealed an important aspect about the structure of the data in the study.
+```{r}
+suppressMessages(library(scales))
+# How many patients have no instance of a risk factor or Ptosis?
+data <- data %>% 
+  mutate(sum = rowSums(.))
+
+sum(data$sum == 0)/dim(data)[1] # proportion of perfectly "healthy" patients
+```
+
+Some 38% of all patients from the data are completely free of any of the risk factors in the study and have no instance of disease. These individuals can be considered perfectly "healthy" by the standards of this study, and make up a large section of the overall sample. This posed the question, just how many patients in the study have none of the risk factors of interest?
+
+```{r, fig.align='center', echo = FALSE}
+require(gridExtra)
+# What is the distribution of diseases counts in Ptosis and No Ptosis patients?
+
+data <- data %>% # remove old sum variable 
+  select(-sum)
+
+data <- data %>% # variable for number of diseases in each patient  
+  mutate(Disease_Total = rowSums(.[1:14]))
+
+
+# Histograms of Ptosis and No Ptosis by Disease Total 
+g1 <- ggplot(data %>% filter(Ptosis == 1), aes(x = Disease_Total)) + 
+  geom_bar(aes(y = (..count..)/sum(..count..)), fill = "steelblue") +
+  scale_y_continuous(labels=percent_format()) + 
+  labs(x = "Number of Diseases", y = "Percentage of Patients") +
+  ggtitle("Ptosis Patients") + 
+  theme(plot.title = element_text(face = "bold", hjust = 0.5))
+
+g2 <- ggplot(data %>% filter(Ptosis == 0), aes(x = Disease_Total)) + 
+  geom_bar(aes(y = (..count..)/sum(..count..)), fill = "steelblue") +
+  scale_y_continuous(labels=percent_format()) + 
+  labs(x = "Number of Diseases", y = "Percentage of Patients") +
+  ggtitle("No Ptosis Patients") + 
+  theme(plot.title = element_text(face = "bold", hjust = 0.5))
+
+grid.arrange(g1, g2, ncol=2)
+```
+
+Looking at these graphs it becoes immediately apparent that the suspicion that the majority of the data is actually devoid of information is true. You can see that just over 60% of all patients with or without Ptosis have none of the risk factors and this could seriously distort analysis. It is true that in that the lack of information in itself is informative but we did not expect that such a substantial number of the patients were so "healthy." As I will show later, incorporating these "Null" patients in any models will actually cause the model to associate a given risk factor with lower probability of Ptosis.
+
+##How does overall health of a patient contribute to Ptosis?
+While considering factors that could lead to Ptosis, we thought that one potential contributor of Ptosis could be the overall health of a given patient. While we did not have a measure of "overall" health, we associated the more risk factors a given patient head with decreasing overall health. Thus, Disease Total acted as a pseudo score for patient health. 
+
+```{r, fig.align='center', echo = FALSE}
+ggplot(data, aes(x=Disease_Total, fill = factor(Ptosis))) + 
+  geom_bar(position = "fill", stat = "count",aes(y = (..count..)/sum(..count..))) +
+  scale_y_continuous(labels = scales::percent) +
+  labs(title = "Proportion of Ptosis vs. Control Patients by Disease Count", x = "Number of Diseases", y = "% Per Disease Count", fill = "Legend") +
+  scale_fill_manual(labels = c("No Ptosis", "Ptosis"), values = c("steelblue", "firebrick4")) +
+  theme(plot.title = element_text(face = "bold"))
+```
+However, you can see that increasing numbers of disease in a patient do not dramatically increase the proportion of Ptosis cases. There seems to be a slight increase in the proportion of Ptosis cases when patients have 7-9 diseases but overal patient health appears inconsistent with Ptosis.
+
+####What do to with the empty cases?
+The discovery that a considerable amount of our data did not contain information on the risk factors of the study presented a dilemna. On the one hand, it comfirmed that other factors not in the study likely contribute to Ptosis as 5,214 of the 8,295 Ptosis Patients in the study had none of the risk factors of interest. However, subsequent analysis would likely be distorted by such a large presence of "empty" observations so after consulting with the doctors promoting the study, we made the decision to remove these empty cases and proceed with analysis. This takes the original number of individuals of the study from 21,425 down to 8,205, which is a significant drop in number. However, I believe that by focusing on individuals with at least one risk factor the study will better be alined with the original objective of finding how these particular factors contribute to Ptosis
+
+
+```{r, echo = F}
+data_NN <- data %>% # NN stands for No Null 
+  filter(Disease_Total >= 1)
+
+dim(data_NN)
+```
+
+##Looking for latent patterns amongst the risk factors
+To look for underlying groupings within the risk factors and the response, I used a technique called Multiple Correspondence Analysis (MCA). The goal of MCA is to find the "hidden structure" of the categorical variables and we use it to come to a general understanding of how the variables/response are related. I choose to use the Indicator Matrix, which is just a representation of the data as it is, with rows being observations and columns being our risk factors. Associations between the factors are uncovered by calculating the Chi-Square distance between rows and columns, and these distances are maximized as to find the largest sections of variance within the data. MCA is useful in that it can capture both linear and non-linear patterns, and will help us reduce the dimension of the data set from 15 down to 3-4 (hopefully).   
+
+I used the FactoMineR statistical package for this analysis, and uncharacteristccally included the response (Ptosis) in the analysis to see if it could be grouped with any of the risk factors of interest. The analysis was run on the data with the null observations removed because including them meant that the first component, representing 20% of the variation, was characterized by this emptiness. 
+```{r, echo = F}
+suppressMessages(library("FactoMineR"))
+suppressMessages(library("factoextra"))
+options(scipen=999)
+# convert all columns to factors, remove disease totals
+data_NN <- data_NN %>%
+  mutate_all(funs(factor(.))) %>%
+  select(-Disease_Total)
+
+# Run MCA 
+Ptosis_MCA <- MCA(data_NN, graph = FALSE)
+
+# vis of components and variability
+fviz_screeplot(Ptosis_MCA, addlabels = TRUE, ylim = c(0, 45), main = "Variance Captured by Components", ggtheme = theme_gray()) # can see that not much of the variation is captured in first few components
+
+eigs <- get_eigenvalue(Ptosis_MCA)
+head(eigs) # just cross 50% of the variance explained by 6 dimensions
+
+```
+
+Initial results of the MCA highlight that the percentage of variances captured by the components does not meet our initial goal of capturing significant variation within the first 3 components. In fact, it takes the first 6 components to capture 50% of the variation in the data revealing the complexity of the underlying relationships between the predictors. 
+```{r, echo = F, fig.align='center', out.width = '75%'}
+var_results <- get_mca_var(Ptosis_MCA)
+#var_results$cos2  ptosis not captured by first few components making it hard to draw even minor associations between the variables and ptosis 
+
+# ploting variables as a whole against first two components 
+fviz_mca_var(Ptosis_MCA, choice = "mca.cor", 
+            repel = TRUE, # Avoid text overlapping (slow)
+            ggtheme = theme_minimal())
+
+```
+
+The above plot shows the how correlated each variable is with the first two components, who collectively captured 21.8% of the data. We can begin to see some of the groupings and relations bteween the variables. Diabetes Type I & II are clustered with Peripheral Neuropathy and Heart Failure, Ishemic Heart Disease and Perivascular Disease are grouped. Ptosis is not correlated with the first dimension at call, but is the most correlated with dimension 2, and thus with Diabetes and Peripheral Neuropathy. 
+
+Now I will look at the squared cosine of the risk factors, which will indicate how well each variable and level is captured by the first two components. Blue indicates low capture, yellow mid capture, and red high capture. 
+
+```{r, echo = F,fig.align='center', out.width = '55%'}
+# ploting variable levels vs first 2 components
+fviz_mca_var(Ptosis_MCA, col.var = "cos2",
+             gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
+             repel = TRUE, # Avoid text overlapping (slow)
+             ggtheme = theme_minimal())
+
+# fviz_cos2(Ptosis_MCA, choice = "var", axes = 1:2) ischemic heart disease captured the most by the first two components, 
+```
+
+Both levels of Isemeic Heart Disease are well captured by the first two components, and we can see that Ptosis 1 (patient having Ptosis) is also mildy captured. Thus, this is further confirmation that Ishemic Heart disease, diabetes and heart failure have underlying relationships with Ptosis and each other - at least in the first two components. Another clue for that these risk factors are related to Ptosis. 
+
+##Logistic Regression to predict Ptosis
+This study choose to model Ptosis using the logistic regression algorithm because of the ease of interpretation and rather short training time. To ensure the stability of the coefficients produced by the model and the accuracy, the model was trained on a random split of 75% training and 25% testing, and during the training phase 10-Fold cross vaildation was used to further stability. Cross-Validation is the process of dividing the data into separate batches and training the data on 9 of the 10 batches, and validating it on the 10th "hold-out" batch. The batches are rotated through so each one is treated as the hold-out set, and the misclassification rate of the models is averaged.
+
+####Including Surgery
+During this stage of the analysis, I include the ocular surgery data as an additional risk factor for the model to consider. Ocular surgery is known in medical literature to cause Ptosis and was not included in exploratory analysis because the goal was to understand the relationships of diseases with each other and not a medical procedure. Ocular surgery is binary encoded. Models were trained on 4 different subgroups of the data for comparison; the full original data set, the full data set with surgery included, the reduced data set of patients with at least one risk factor, the reduced data set of at least one risk factor and ocular surgery. 
+```{r, echo = F}
+suppressMessages(require(caret)) # cross validation
+suppressMessages(library(ROCR))
+suppressMessages(library(ggplot2))
+
+load("/Users/QuinnSweetnam/Downloads/SurgerySubGroupsUpdated.RData")
+surgery_icd <- surgery # this dataset for people with at least one_icd code(risk factor)
+surgery <- surgery %>% select(-c(ID))
+surgery <- surgery %>%
+  mutate_all(funs(factor(.)))
+
+##########################################################################################
+# Regression on full data set, ocular surgery included
+set.seed(467) # new seed to rest randomness
+sample_size1 <- floor(0.75 * nrow(surgery)) # set sample size to be 75% training, 25% testing
+
+train_ind1 <- sample(seq_len(nrow(surgery)), size = sample_size1, replace = FALSE)
+
+train1 <- surgery[train_ind1, ] # train
+test1 <- surgery[-train_ind1, ] # test
+
+#logistic regression of training surgery:
+# Procedure: 10-fold cross-validation on training set, predict on test set, plot roc of Ptosis
+tc <- trainControl("repeatedcv", number = 10, savePredictions=T)  #"cv" = cross-validation, 10-fold
+fit <- train(Ptosis ~ ., data=train1, family = "binomial", method = "glm", trControl = tc)
+
+#summary(fit)
+# Significant factors, full patient list: Hypertension, heart failure, perivascular disease, kidney disease, hyperthyroid, type II, hyperlipidemia, tobacco, eye surgery
+
+outcome <- fit$finalModel$fitted.values
+test_values <- predict(fit, test1, type = 'prob')
+pred <- prediction(test_values[2], test1$Ptosis)
+perf <- performance(pred,"tpr", "fpr")
+auc1 <- performance(pred,"auc") # AUC is 0.5922
+
+# Plot with AUC attached
+# plot(perf, col = 'blue', print.cutoffs.at = seq(0.2,0.7, by = 0.1),
+#     main = "OCULAR SURGERY All Patients")
+# abline(a = 0, b = 1)
+# text(x= 0.75,y = 0.2, labels = "AUC = 0.59")
+
+# Variable Importance Plot
+var_impt1 <- varImp(fit)
+variable_imptplot_1 <- ggplot(varImp(fit, scale = FALSE)) + 
+  labs(title ="Variable Importance \nOcular Surgery, All Patients", y = "Standardized Z-Score") +
+  theme(plot.title = element_text(size=8, face = "bold"),
+        axis.title.x = element_text(size = 8),
+        axis.title.y = element_blank())
+
+
+##########################################################################################
+#2. look at people with at least one risk factor and OCULAR surgery - 8,205 people
+surgery_icd <- surgery_icd %>% select(-c(ID))
+surgery_icd <- surgery_icd %>% mutate(number_icd_codes =  rowSums(surgery_icd[,c(1:14,16)])) # create variable for number of RF patient has
+
+one_or_more_surgery <- surgery_icd %>% filter(surgery_icd$number_icd_codes >=1) 
+
+one_or_more_surgery <- one_or_more_surgery %>% select(-c(number_icd_codes)) # remove RF sum variable 
+one_or_more_surgery <- one_or_more_surgery %>%
+ mutate_all(funs(factor(.)))
+
+# set new seed 
+set.seed(321)
+smp_size2 <- floor(0.75 * nrow(one_or_more_surgery)) # set sample size to be 75% training, 25% testing
+
+
+train_ind2 <- sample(seq_len(nrow(one_or_more_surgery)), size = smp_size2, replace = FALSE)
+
+train2 <- one_or_more_surgery[train_ind2, ] # train
+test2 <- one_or_more_surgery[-train_ind2, ] # test
+
+# Logistic Regression Ocular Surgery at least 1 RF
+# Procedure: 10-fold cross-validation on training set, predict on test set, plot roc of Ptosis
+tc <- trainControl("repeatedcv", number = 10, savePredictions=T)  #"cv" = cross-validation, 10-fold
+fit2 <- train(Ptosis ~ ., data=train2, family = "binomial", method = "glm", trControl = tc)
+
+#summary(fit2)
+# Surgery at least 1 RF: Hypertension, Heartfailure, Kidney Disease, Hyperthyroid, Type II Diabetes, Hyperipidemia, Tobacco, Eye Surgery, Perheral Neuro 
+
+outcome <- fit2$finalModel$fitted.values
+test_values2 <- predict(fit2, test2, type = 'prob')
+pred2 <- prediction(test_values2[2], test2$Ptosis)
+perf2 <- performance(pred2,"tpr", "fpr")
+auc2 <- performance(pred2,"auc") # AUC is 0.669
+
+# Plot with AUC attached
+#plot(perf2, col = 'blue', print.cutoffs.at = seq(0.2,0.7, by = 0.1),
+#     main = "OCULAR SURGERY, Patients with at least 1 RF")
+#abline(a = 0, b = 1)
+#text(x= 0.75,y = 0.2, labels = "AUC = 0.669")
+
+
+# Variable Importance Plot
+var_impt2 <- varImp(fit2)
+var_imptplot_2 <- ggplot(varImp(fit2, scale = FALSE)) + 
+  labs(title ="Variable Importance \nOcular Surgery, At least 1 RF", y = "Standardized Z-Score") +
+  theme(plot.title = element_text(size=8, face = "bold"),
+        axis.title.x = element_text(size = 8),
+        axis.title.y = element_blank())
+
+
+
+##########################################################################################
+#3. Look at people withOUT Ocular surgery (everyone) - 19,588 people
+NO_surgery_icd <- no_surgery # save dataset for later for people with at least one risk factor
+no_surgery <- no_surgery %>% select(-c(ID))
+no_surgery <- no_surgery %>% mutate_all(funs(factor(.)))
+
+set.seed(899)
+sample_size3 <- floor(0.75 * nrow(no_surgery)) # set sample size to be 75% training, 25% testing
+
+train_ind3 <- sample(seq_len(nrow(no_surgery)), size = sample_size3, replace = FALSE)
+
+train3 <- no_surgery[train_ind3, ] # train
+test3 <- no_surgery[-train_ind3, ] # test
+
+# Logistic Regression NO SURGERY
+# Procedure: 10-fold cross-validation on training set, predict on test set, plot roc of Ptosis
+tc <- trainControl("repeatedcv", number = 10, savePredictions=T)  #"cv" = cross-validation, 10-fold
+fit3 <- train(Ptosis ~ ., data=train3, family = "binomial", method = "glm", trControl = tc)
+#summary(fit3)
+# No ocular surgery: hypertension, heart failure, peri vascular disease, kidney disease, hyperthyroid, type II diabetes, hyperlipidemia
+
+outcome <- fit3$finalModel$fitted.values
+test_values3 <- predict(fit3, test3, type = 'prob')
+pred3 <- prediction(test_values3[2], test3$Ptosis)
+perf3 <- performance(pred3,"tpr", "fpr")
+auc3 <- performance(pred3,"auc") # AUC is 0.545
+
+# Plot with AUC attached
+#plot(perf3, col = 'blue', print.cutoffs.at = seq(0.2,0.7, by = 0.1),
+#     main = "No OCULAR SURGERY")
+#abline(a = 0, b = 1)
+#text(x= 0.75,y = 0.2, labels = "AUC = 0.545") 
+
+# Variable Importance Plot
+var_impt3 <- varImp(fit3)
+var_imptplot3 <- ggplot(varImp(fit3, scale = FALSE)) + 
+  labs(title ="Variable Importance \nNo Ocular Surgery, All Patients", y = "Standardized Z-Score") +
+  theme(plot.title = element_text(size=8, face = "bold"),
+        axis.title.x = element_text(size = 8),
+        axis.title.y = element_blank())
+
+##########################################################################################
+#4. Look at people withOUT Ocular surgery (>= 1 Risk Factor): 7,275 people
+NO_surgery_icd <- NO_surgery_icd %>% select(-c(ID))
+NO_surgery_icd <- NO_surgery_icd %>% mutate(number_icd_codes = rowSums(NO_surgery_icd[,c(1:14)]))
+
+one_or_more_NO_surgery <- NO_surgery_icd %>% filter(NO_surgery_icd$number_icd_codes >=1)
+
+one_or_more_NO_surgery <- one_or_more_NO_surgery %>% select(-c(number_icd_codes))
+one_or_more_NO_surgery <- one_or_more_NO_surgery %>%
+ mutate_all(funs(factor(.)))
+
+set.seed(42)
+smp_size4 <- floor(0.75 * nrow(one_or_more_NO_surgery)) # set sample size to be 75% training, 25% testing
+
+train_ind4 <- sample(seq_len(nrow(one_or_more_NO_surgery)), size = smp_size4, replace = FALSE)
+
+train4 <- one_or_more_NO_surgery[train_ind4, ] # train
+test4 <- one_or_more_NO_surgery[-train_ind4, ] # test
+
+# Logistic Regression NO SURGERY at least one RF
+# Procedure: 10-fold cross-validation on training set, predict on test set, plot roc of Ptosis
+tc <- trainControl("repeatedcv", number = 10, savePredictions=T)  #"cv" = cross-validation, 10-fold
+fit4 <- train(Ptosis ~ ., data=train4, family = "binomial", method = "glm", trControl = tc)
+#summary(fit4)
+# No surgery 1 RF: hypertension, heart failure, perivascular disease, kidney disease, hyperthyroid, type II diabetes, type I diabetes hyperlipidemia, perheral neuro
+
+outcome <- fit4$finalModel$fitted.values
+test_values4 <- predict(fit4, test4, type = 'prob')
+pred4 <- prediction(test_values4[2], test4$Ptosis)
+perf4 <- performance(pred4,"tpr", "fpr")
+auc4 <- performance(pred4,"auc") # AUC is 0.588
+
+# Plot with AUC attached
+#plot(perf4, col = 'blue', print.cutoffs.at = seq(0.2,0.7, by = 0.1),
+#     main = "No OCULAR SURGERY")
+#abline(a = 0, b = 1)
+#text(x= 0.75,y = 0.2, labels = "AUC = 0.588")  
+
+# Variable Importance Plot
+var_impt4 <- varImp(fit4)
+var_imptplot4 <- ggplot(varImp(fit4, scale = FALSE)) + 
+  labs(title ="Variable Importance \nNo Ocular Surgery, At least 1 RF", y = "Standardized Z-Score") +
+  theme(plot.title = element_text(size=8, face = "bold"),
+        axis.title.x = element_text(size = 8),
+        axis.title.y = element_blank())
+
+
+##########################################################################################
+# Two-Way Interaction and ROC Analysis on best model 
+# Two way interactions on our "best" model - Ocular Surgery at least 1 RF
+# change to new seed 
+set.seed(722)
+smp_size2 <- floor(0.75 * nrow(one_or_more_surgery)) # set sample size to be 75% training, 25% testing
+
+
+train_ind2 <- sample(seq_len(nrow(one_or_more_surgery)), size = smp_size2, replace = FALSE)
+
+train2 <- one_or_more_surgery[train_ind2, ] # train
+test2 <- one_or_more_surgery[-train_ind2, ] # test
+
+# two way interaction modeling
+
+# Procedure: 10-fold cross-validation on training set, predict on test set, plot roc of Ptosis
+tc <- trainControl("repeatedcv", 10, savePredictions=T)  #"cv" = cross-validation, 10-fold
+# TWO WAY INTERACTIONS
+fit_interactions2 <- train(Ptosis ~ .*., data=train2, family = "binomial", method = "glm", trControl = tc)
+#summary(fit_interactions2)
+
+# Significant predictors & interactions
+
+# Main Effects: hypertension, heart failure, perivascular disease, kidney, hyperthyroid, type II diabetes, obesity, eye surgery
+# 8 main effects 
+
+# Interaction effects: Hypertension1:IschemicHeartDisease1, Hypertension1:HeartFailure1, Hypertension1:Hypothyroid1, Hypertension1:TypeIIDiabetes1, Hypertension1:TypeIDiabetes1, Hypertension1:TobaccoUse1, Hypertension1:PeripheralNeuro1,
+
+#IschemicHeartDisease1:PeriVascDisease1, IschemicHeartDisease1:Obesity1,
+
+#HeartFailure1:Hyperthyroid1, HeartFailure1:PeripheralNeuro1,
+
+#PeriVascDisease1:KidneyDisease1, 
+
+#KidneyDisease1:Hypothyroid1, KidneyDisease1:Hyperlipidemia1, KidneyDisease1:PeripheralNeuro1, 
+
+#Hyperthyroid1:TypeIIDiabetes1, Hyperthyroid1:PeripheralNeuro1,
+
+#TypeIIDiabetes1:EyeSurgery1
+# 18 interaction effects
+# total of 26 terms deemed significant 
+outcome <- fit_interactions2$finalModel$fitted.values
+test_values5 <- predict(fit_interactions2, test2, type = 'prob')
+pred5 <- prediction(test_values5[2], test2$Ptosis)
+perf5 <- performance(pred5,"tpr", "fpr")
+auc5 <- performance(pred5,"auc") # AUC is 0.6885974, see improvement actually
+
+
+# Plot with AUC attached
+#plot(perf5, col = 'blue', print.cutoffs.at = seq(0.2,0.7, by = 0.1),
+#     main = "OCULAR SURGERY & 1 RF, Two-Way Interactions")
+#abline(a = 0, b = 1)
+#text(x= 0.75,y = 0.2, labels = "AUC = 0.69")
+
+
+# Variable Importance Plot
+var_impt5 <- varImp(fit_interactions2, scale = FALSE)
+var_imptplot5 <- ggplot(var_impt5) + 
+  labs(title ="Variable Importance Interactions", y = "Standardized Z-Score") +
+  theme(plot.title = element_text(size=10, face = "bold"),
+        axis.title.x = element_text(size = 8),
+        axis.title.y = element_blank())
+```
+
+
+```{r, echo = F}
+# Model plots and tables 
+
+# Roc curve 1 (Ocular surgery)
+perfx <- as.numeric( unlist ( perf@x.values) )
+perfy <- as.numeric( unlist ( perf@y.values) )
+# Roc Curve 2 (Ocular Surgery at least One Risk Factor)
+perf2x <- as.numeric( unlist ( perf2@x.values) )
+perf2y <- as.numeric( unlist ( perf2@y.values) )
+# Roc Curve 3 (NO Ocular Surgery)
+perf3x <- as.numeric( unlist ( perf3@x.values) )
+perf3y <- as.numeric( unlist ( perf3@y.values) )
+# Roc Curve 4 (NO Ocular Surgery at least One Risk Factor)
+perf4x <- as.numeric( unlist ( perf4@x.values) )
+perf4y <- as.numeric( unlist ( perf4@y.values) )
+
+# Plot all model ROC curves on same graph 
+plot(perf, col = 'red', print.cutoffs.at = seq(0.2,0.7, by = 0.1),
+     main = "Model Performance by ROC - AUROC",lwd=2.5)
+abline(a = 0, b = 1)
+text(x= 0.75,y = 0.2)
+lines(x = perf2x, y = perf2y, col = "blue",lwd=2.5)
+lines(x = perf3x, y = perf3y, col = "green",lwd=2.5)
+lines(x = perf4x, y = perf4y, col = "orange",lwd=2.5)
+legend(0.67,0.25, cex = 0.5, # places a legend at the appropriate place 
+       c("Ocular Surgery - AUC 0.59","Ocular Surgery 1 RF - AUC 0.67", "No Ocular Surgery - AUC 0.55", "NO Ocular Surgery 1 RF - AUC 0.59"), # puts text in the legend 
+       lty=c(1,1,1,1), # gives the legend appropriate symbols (lines)
+       lwd=c(2.5,2.5,2.5,2.5),col=c("red","blue", "green", "orange")) # gives the legend lines the correct color and width
+```
+
+After training the models on the various subgroups of the data, we can see that the most effective model was trained on at least one risk factor, ocular surgery included group. ROC curve analysis shows us that this model had the best sensitivity and specificity values. I also analyzed the two level interactions in a spearate moel and included but we can see that we only get a marginal improvement in AUC score, and after confering with the doctor team we determined that the primary interest was the model main effects as it can be heard to interpret what the odds-ratios of interaction effects truly mean and the doctors emphasis on main effect of risk factos. For simplicity sake, I only include the confusion matrix analysis of the best model below. Considering our focus of finding strong associations between risk factors and the disease we mainly focused on maximizing sensitivity and specificity. 
+
+```{r, echo = F}
+# Output Explanation:
+# Positive class taken to be 0 = No ptosis
+# Accuracy = number of predictions predicted correctly
+
+# Ocular Surgery, all Patients
+# confusionMatrix(table(predict(fit, test1), test1$Ptosis))
+
+# Ocular Surgery, at least 1 RF
+confusionMatrix(table(predict(fit2, test2), test2$Ptosis))
+
+# No ocular surgery, all patients
+# confusionMatrix(table(predict(fit3, test3), test3$Ptosis))
+
+# No ocular surgery, at least 1 RF
+# confusionMatrix(table(predict(fit4, test4), test4$Ptosis))
+
+# Ocular Surgery, at least 1 RF INTERACTION MODEL
+# confusionMatrix(table(predict(fit_interactions2, test2), test2$Ptosis))
+# substantial improvements in accuracy, kappa, specificity
+# decrease in sensitivity
+```
+
+
+
+A couple of important metrics jump out in the confusion matrix that indicate that the logistic regression model run on the at least one Risk Factor, surgery included subgroup would be the best for the study. This model had the best trade-off between sensitivity and specificity, and by the far highest sensitivity score. The model choose a "0" score for Ptosis (no Ptosis) as the positive case, so the output above is actually needs to switch sensitivity and specificity. Thus the true sensitivity is 37%, which is the rate we correctly predict true cases of ptosis and while is bad by many standards, this was the best predictive score of ptosis we were able to produce. One drawback of this model is that it tends to over-predict cases of No Ptosis, which we theorize come from non-linear relations between the disease. Other algorithms such as K-Nearest-Neighbors, Discriminant Analysis, Random Forest and Support Vector Machines could more easily capture these non-linear patterns, but the ease of interpretation and scope of our study led us to stay with Logistic Regression. 
+
+##Variable Importance
+```{r, echo = F}
+require(gridExtra)
+# print out variable importance plots from before 
+
+# variable_imptplot_1, var_imptplot3, var_imptplot_2, var_imptplot4, var_imptplot5 plot names 
+grid.arrange(variable_imptplot_1, var_imptplot_2, var_imptplot3, var_imptplot4,ncol=2)
+```
+
+One benefit of running the models on multiple subgroups is that we get consistent results for which risk factors are important. If Ocular Surgery is present it far out-ranks other risk factors in importance, but even after controling for surgery the next most important risk factors are some combination of Hyperthyroidism, Type II Diabetes, Kidney Disease, and Heart Failure. This asserts the relative significance of these risk factors as they continually show up in various subgroups and consistently contribute the most to predicting Ptosis. Furthermore, Hyprerthyroidism is ranked as most important in all the models (surgery controled). Thus, these becamse our *primary risk factors* and visually you can see that they make up the first one or two "levels" in the bar charts, followed by an importance drop off and our *secondary risk factors.* These are Peripheral Nueropathy, Hyperlipidemia, Hypertension and Perivascular Disease. 
+
+#####Hypertension, an interaction Story
+```{r, echo = F}
+#summary(fit_interactions2)
+#exp(fit_interactions2$finalModel$coefficients)
+```
+While considering interaction effects was ultimatey ruled out because measuring the meaning of the effect of an interaction can be diffult, it is interesting to not that 7 out of the 20 significant interactions had hypertension as 1 pair. This gives some context behind the prevelance of hypertension in the patient population seen before and how common it is in America as a whole (1 out of 3 adults have high blood pressure). The disease has been linked to a number of other health complications such as heart disease, and now quite possibly Ptosis. 
+
+##Interpretation of Results 
+```{r, echo = F}
+#Getting confidence intervals as necessary
+conf_int_1 <- exp(confint(fit2$finalModel, level = 0.95)) # extract 95% confidence interval
+conf_df <- data.frame(names = names(fit2$finalModel$coefficients), 
+                      odds = exp(fit2$finalModel$coefficients), 
+                      lower = conf_int_1[,1], 
+                      upper = conf_int_1[,2])
+
+# display odds ratios via ggplot
+ggplot(conf_df, aes(x = odds, y = names)) +
+  geom_vline(aes(xintercept = 0), size = .25, linetype = "dashed") +
+  geom_errorbarh(aes(xmax = upper, xmin = lower), size = .5, height = 
+                    .2, color = "gray50") +
+  geom_point(size = 3.5, color = "orange") +
+  theme(panel.grid.minor = element_blank(),
+        plot.title = element_text(hjust = 0.5, face = 'bold')) +
+  ylab("") +
+  xlab("Odds-Ratio") +
+  ggtitle("Risk Factors and Ptosis")
+
+#exp(fit2$finalModel$coefficients)
+```
+
+Most of the risk factors Odds Ratio (OR) hover around 1 suggesting that they have very little real effect on causing Ptosis. However, having eye surgery makes you 4.2 times more likely to have Ptosis and Hyperthyroidism makes you 2.5 times more likely to have Ptosis. Heart Failure, Kidney Disease and Hypertension are the only signficicant factors that decrease your chance of having Ptosis - 43%, 33% and 18% less likely. 
+
+#Conclusion
+After exploring the issue of sparsity in the data and running logistic regression models on variou subgroups, we determine that the most significant risk factors for the onset of Ptosis are Eye Surgery and Hyperthyroidism, followed by Type II Diabetes. These diseases consistently emerged as important across subgroups and have the strongest and most significant coefficients in the models. Eye Surgery's link to Ptosis is more clear as it is likely a result of damage done to eyelid muscles during a surgery but the statistical team was unsure of the medical link between Hyperthyroidism and Type II Diabetes. It was referred to medical professionals for deliberation and discussion. 
+
+Heart Failure, Kidney Disease, and Hypertension all decreased the porbability of Ptosis which is interesting because the diseases themselves are linked. Furthermore, Hypertension was the most significant interaction effect and these interaction effects pointed toward increasing the risk of Ptosis. While hard to isolate individual meaning, it seems to indicate taht Hypertension on its own is a detractor, but once combined with further medical ailments the combination helps lead to Ptosis. 
+
+We believe that analytical performance could be improved if demographic and environmental data as well as more diseases are included in analysis. It is our recommendation that these features be gathered in the next round of research and analyzed for importance.  
+
+###Acknowledgments
+This document was comprised of code and analysis done by myself. The original assignment was with a team of two doctors, Dr. Daniel Rootman and Dr. Ben Campbell, and 5 Senior Statistics students, Donjo Lau, Danny Stapleton, Sophie Ringle, Ignat Kulinka, Aida Ylanan and myself. All of these individuals deserves credit but the above is my personal take on the project after our team finished creating a Powerpoint presentation and reflects my work. 
